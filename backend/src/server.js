@@ -86,6 +86,67 @@ app.get("/api/meals/today/:userId", async (req, res) => {
 });
 
 
+
+
+// GET DAILY SUMMARY (goal vs consumed)
+app.get("/api/summary/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const goalResult = await pool.query(
+      "SELECT calorie_goal FROM users WHERE id = $1",
+      [userId]
+    );
+
+    const intakeResult = await pool.query(
+      `SELECT COALESCE(SUM(calories), 0) AS consumed
+       FROM meals
+       WHERE user_id = $1
+       AND DATE(meal_time) = CURRENT_DATE`,
+      [userId]
+    );
+
+    const calorie_goal = goalResult.rows[0].calorie_goal;
+    const consumed = intakeResult.rows[0].consumed;
+    const remaining = calorie_goal - consumed;
+
+    res.json({
+      calorie_goal,
+      consumed,
+      remaining,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch summary" });
+  }
+});
+
+
+
+
+// SUGGEST RECIPES BASED ON REMAINING CALORIES
+app.get("/api/recipes/suggest/:remaining", async (req, res) => {
+  try {
+    const remaining = Number(req.params.remaining);
+
+    const result = await pool.query(
+      `SELECT * FROM recipes
+       WHERE calories <= $1
+       ORDER BY calories DESC
+       LIMIT 3`,
+      [remaining]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to suggest recipes" });
+  }
+});
+
+
+
+
 app.listen(5000, () => {
   console.log("Server running on http://localhost:5000");
 });

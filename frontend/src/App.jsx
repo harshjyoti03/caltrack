@@ -1,69 +1,51 @@
 import { useEffect, useState } from "react";
 
 function App() {
-  const USER_ID = 1; // temporary hardcoded user
+  const USER_ID = 1;
 
-  const [meal, setMeal] = useState({
-    meal_name: "",
-    calories: "",
-  });
+  const [summary, setSummary] = useState(null);
+  const [recipes, setRecipes] = useState([]);
 
-  const [totalCalories, setTotalCalories] = useState(0);
-
-  const handleChange = (e) => {
-    setMeal({ ...meal, [e.target.name]: e.target.value });
-  };
-
-  const addMeal = async () => {
-    await fetch("http://localhost:5000/api/meals", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: USER_ID,
-        meal_name: meal.meal_name,
-        calories: Number(meal.calories),
-      }),
-    });
-
-    setMeal({ meal_name: "", calories: "" });
-    fetchTodayCalories();
-  };
-
-  const fetchTodayCalories = async () => {
+  const fetchSummary = async () => {
     const res = await fetch(
-      `http://localhost:5000/api/meals/today/${USER_ID}`
+      `http://localhost:5000/api/summary/${USER_ID}`
     );
     const data = await res.json();
-    setTotalCalories(data.total_calories);
+    setSummary(data);
+
+    fetchRecipes(data.remaining);
+  };
+
+  const fetchRecipes = async (remaining) => {
+    const res = await fetch(
+      `http://localhost:5000/api/recipes/suggest/${remaining}`
+    );
+    const data = await res.json();
+    setRecipes(data);
   };
 
   useEffect(() => {
-    fetchTodayCalories();
+    fetchSummary();
   }, []);
+
+  if (!summary) return <p>Loading...</p>;
 
   return (
     <div style={{ padding: 40 }}>
-      <h1>CalTrack — Meal Tracker</h1>
+      <h1>CalTrack — Daily Summary</h1>
 
-      <h2>Today's Calories: {totalCalories}</h2>
+      <p>🎯 Daily Goal: {summary.calorie_goal} kcal</p>
+      <p>🔥 Consumed: {summary.consumed} kcal</p>
+      <p>✅ Remaining: {summary.remaining} kcal</p>
 
-      <input
-        name="meal_name"
-        placeholder="Meal name"
-        value={meal.meal_name}
-        onChange={handleChange}
-      />
-      <br />
-
-      <input
-        name="calories"
-        placeholder="Calories"
-        value={meal.calories}
-        onChange={handleChange}
-      />
-      <br />
-
-      <button onClick={addMeal}>Add Meal</button>
+      <h2>🍽️ Suggested Recipes</h2>
+      <ul>
+        {recipes.map((r) => (
+          <li key={r.id}>
+            {r.name} — {r.calories} kcal
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -6,16 +6,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// =====================
-// BASIC HEALTH CHECK
-// =====================
+/* =====================================================
+   BASIC HEALTH CHECK
+===================================================== */
 app.get("/", (req, res) => {
   res.send("CalTrack API is running 🚀");
 });
 
-// =====================
-// USER PROFILE
-// =====================
+/* =====================================================
+   USER PROFILE
+===================================================== */
 app.post("/api/profile", async (req, res) => {
   try {
     const {
@@ -45,14 +45,13 @@ app.post("/api/profile", async (req, res) => {
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Failed to create profile" });
   }
 });
 
-// =====================
-// MEALS
-// =====================
+/* =====================================================
+   MEALS
+===================================================== */
 app.post("/api/meals", async (req, res) => {
   try {
     const { user_id, meal_name, calories } = req.body;
@@ -88,19 +87,19 @@ app.get("/api/meals/today/:userId", async (req, res) => {
   }
 });
 
-// =====================
-// DAILY SUMMARY
-// =====================
+/* =====================================================
+   DAILY SUMMARY
+===================================================== */
 app.get("/api/summary/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
 
-    const goalResult = await pool.query(
+    const goalRes = await pool.query(
       "SELECT calorie_goal FROM users WHERE id = $1",
       [userId]
     );
 
-    const intakeResult = await pool.query(
+    const intakeRes = await pool.query(
       `SELECT COALESCE(SUM(calories), 0) AS consumed
        FROM meals
        WHERE user_id = $1
@@ -108,8 +107,8 @@ app.get("/api/summary/:userId", async (req, res) => {
       [userId]
     );
 
-    const calorie_goal = goalResult.rows[0].calorie_goal;
-    const consumed = intakeResult.rows[0].consumed;
+    const calorie_goal = goalRes.rows[0].calorie_goal;
+    const consumed = intakeRes.rows[0].consumed;
     const remaining = calorie_goal - consumed;
 
     res.json({ calorie_goal, consumed, remaining });
@@ -118,9 +117,9 @@ app.get("/api/summary/:userId", async (req, res) => {
   }
 });
 
-// =====================
-// RECIPES
-// =====================
+/* =====================================================
+   RECIPES
+===================================================== */
 app.get("/api/recipes/suggest/:remaining", async (req, res) => {
   try {
     const remaining = Number(req.params.remaining);
@@ -139,11 +138,9 @@ app.get("/api/recipes/suggest/:remaining", async (req, res) => {
   }
 });
 
-// =====================
-// ⚖️ WEIGHT TRACKING (ORDER MATTERS)
-// =====================
-
-// GET weight history (MUST COME FIRST)
+/* =====================================================
+   WEIGHT TRACKING (ORDER MATTERS)
+===================================================== */
 app.get("/api/weight/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -162,7 +159,6 @@ app.get("/api/weight/:userId", async (req, res) => {
   }
 });
 
-// ADD weight entry
 app.post("/api/weight", async (req, res) => {
   try {
     const { user_id, weight_kg } = req.body;
@@ -180,9 +176,81 @@ app.post("/api/weight", async (req, res) => {
   }
 });
 
-// =====================
-// SERVER START
-// =====================
+/* =====================================================
+   🧠 ML WORKOUT RECOMMENDATION ENGINE (SPRINT 6)
+===================================================== */
+
+// ML scoring function
+function scoreWorkout(workout, features) {
+  const { remainingCalories, weightDelta } = features;
+
+  // Feature 1: calorie suitability
+  const calorieScore = workout.calories_burn / remainingCalories;
+
+  // Feature 2: goal alignment
+  let goalScore = 0;
+  if (weightDelta > 0 && workout.type === "cardio") goalScore = 1;
+  if (weightDelta < 0 && workout.type === "strength") goalScore = 1;
+
+  // Feature 3: intensity
+  const intensityScore = workout.calories_burn > 200 ? 1 : 0.5;
+
+  // Weighted linear model
+  return (
+    0.5 * calorieScore +
+    0.3 * goalScore +
+    0.2 * intensityScore
+  );
+}
+
+// ML Recommendation API
+app.get("/api/workouts/recommend/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    // Fetch user data
+    const userRes = await pool.query(
+      `SELECT weight_kg, target_weight_kg, calorie_goal
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    // Fetch today's calories
+    const intakeRes = await pool.query(
+      `SELECT COALESCE(SUM(calories), 0) AS consumed
+       FROM meals
+       WHERE user_id = $1
+       AND DATE(meal_time) = CURRENT_DATE`,
+      [userId]
+    );
+
+    const remainingCalories =
+      userRes.rows[0].calorie_goal - intakeRes.rows[0].consumed;
+
+    const weightDelta =
+      userRes.rows[0].weight_kg - userRes.rows[0].target_weight_kg;
+
+    // Fetch workouts
+    const workoutsRes = await pool.query("SELECT * FROM workouts");
+
+    // Score workouts (ML step)
+    const scoredWorkouts = workoutsRes.rows.map((w) => ({
+      ...w,
+      score: scoreWorkout(w, { remainingCalories, weightDelta }),
+    }));
+
+    // Rank & return top 3
+    scoredWorkouts.sort((a, b) => b.score - a.score);
+
+    res.json(scoredWorkouts.slice(0, 3));
+  } catch (err) {
+    res.status(500).json({ error: "Workout recommendation failed" });
+  }
+});
+
+/* =====================================================
+   SERVER START
+===================================================== */
 app.listen(5000, () => {
   console.log("Server running on http://localhost:5000");
 });

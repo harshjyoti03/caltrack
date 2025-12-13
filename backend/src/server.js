@@ -6,11 +6,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// =====================
+// BASIC HEALTH CHECK
+// =====================
 app.get("/", (req, res) => {
   res.send("CalTrack API is running 🚀");
 });
 
-// CREATE USER PROFILE
+// =====================
+// USER PROFILE
+// =====================
 app.post("/api/profile", async (req, res) => {
   try {
     const {
@@ -21,11 +26,10 @@ app.post("/api/profile", async (req, res) => {
       activity_level,
     } = req.body;
 
-    // Temporary calorie logic (we improve later)
-    const calorie_goal = 2000;
+    const calorie_goal = 2000; // temp logic
 
     const result = await pool.query(
-      `INSERT INTO users 
+      `INSERT INTO users
        (name, height_cm, weight_kg, target_weight_kg, activity_level, calorie_goal)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
@@ -40,13 +44,15 @@ app.post("/api/profile", async (req, res) => {
     );
 
     res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Database error" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create profile" });
   }
 });
 
-// ADD MEAL
+// =====================
+// MEALS
+// =====================
 app.post("/api/meals", async (req, res) => {
   try {
     const { user_id, meal_name, calories } = req.body;
@@ -59,13 +65,11 @@ app.post("/api/meals", async (req, res) => {
     );
 
     res.status(201).json(result.rows[0]);
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
     res.status(500).json({ error: "Failed to add meal" });
   }
 });
 
-// GET TODAY'S CALORIES
 app.get("/api/meals/today/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -79,16 +83,14 @@ app.get("/api/meals/today/:userId", async (req, res) => {
     );
 
     res.json(result.rows[0]);
-  } catch (error) {
-    console.error(error);
+  } catch (err) {
     res.status(500).json({ error: "Failed to fetch calories" });
   }
 });
 
-
-
-
-// GET DAILY SUMMARY (goal vs consumed)
+// =====================
+// DAILY SUMMARY
+// =====================
 app.get("/api/summary/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -110,21 +112,15 @@ app.get("/api/summary/:userId", async (req, res) => {
     const consumed = intakeResult.rows[0].consumed;
     const remaining = calorie_goal - consumed;
 
-    res.json({
-      calorie_goal,
-      consumed,
-      remaining,
-    });
+    res.json({ calorie_goal, consumed, remaining });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Failed to fetch summary" });
   }
 });
 
-
-
-
-// SUGGEST RECIPES BASED ON REMAINING CALORIES
+// =====================
+// RECIPES
+// =====================
 app.get("/api/recipes/suggest/:remaining", async (req, res) => {
   try {
     const remaining = Number(req.params.remaining);
@@ -139,14 +135,54 @@ app.get("/api/recipes/suggest/:remaining", async (req, res) => {
 
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: "Failed to suggest recipes" });
   }
 });
 
+// =====================
+// ⚖️ WEIGHT TRACKING (ORDER MATTERS)
+// =====================
 
+// GET weight history (MUST COME FIRST)
+app.get("/api/weight/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
 
+    const result = await pool.query(
+      `SELECT weight_kg, entry_date
+       FROM weight_entries
+       WHERE user_id = $1
+       ORDER BY entry_date ASC`,
+      [userId]
+    );
 
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch weight history" });
+  }
+});
+
+// ADD weight entry
+app.post("/api/weight", async (req, res) => {
+  try {
+    const { user_id, weight_kg } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO weight_entries (user_id, weight_kg)
+       VALUES ($1, $2)
+       RETURNING *`,
+      [user_id, weight_kg]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to add weight" });
+  }
+});
+
+// =====================
+// SERVER START
+// =====================
 app.listen(5000, () => {
   console.log("Server running on http://localhost:5000");
 });

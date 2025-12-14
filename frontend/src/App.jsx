@@ -1,232 +1,249 @@
 import { useEffect, useState } from "react";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 import "./App.css";
 
-// Chart.js imports
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  ArcElement,
-  Tooltip,
-  Legend,
-} from "chart.js";
-import { Line, Doughnut } from "react-chartjs-2";
+const API = "http://localhost:5000";
+const TOKEN = localStorage.getItem("token");
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  ArcElement,
-  Tooltip,
-  Legend
-);
+const CAL_COLORS = ["#ff9f43", "#2ecc71"]; // Consumed, Remaining
 
-const USER_ID = 1;
-
-function App() {
-  // ================= STATE =================
-  const [summary, setSummary] = useState({
-    calorie_goal: 0,
-    consumed: 0,
-    remaining: 0,
-  });
-
+export default function App() {
+  const [summary, setSummary] = useState(null);
   const [mealName, setMealName] = useState("");
   const [mealCalories, setMealCalories] = useState("");
-
+  const [meals, setMeals] = useState([]);
   const [weight, setWeight] = useState("");
   const [weightHistory, setWeightHistory] = useState([]);
   const [workouts, setWorkouts] = useState([]);
 
-  // ================= FETCH SUMMARY =================
+  /* ---------------- FETCHERS ---------------- */
+
   const fetchSummary = async () => {
-    const res = await fetch(
-      `http://localhost:5000/api/summary/${USER_ID}`
-    );
-    const data = await res.json();
-    setSummary(data);
+    const res = await fetch(`${API}/api/summary`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    setSummary(await res.json());
   };
 
-  // ================= ADD MEAL =================
+  const fetchMeals = async () => {
+    const res = await fetch(`${API}/api/meals/today`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    setMeals(await res.json());
+  };
+
+  const fetchWeightHistory = async () => {
+    const res = await fetch(`${API}/api/weight`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    setWeightHistory(await res.json());
+  };
+
+  const fetchWorkouts = async () => {
+    try {
+      const res = await fetch(
+        `${API}/api/workouts/recommend/${USER_ID}`
+      );
+      const data = await res.json();
+
+      console.log("WORKOUTS:", data); // 🔥 DEBUG LINE
+      setWorkouts(data);
+    } catch (err) {
+      console.error("Workout fetch failed", err);
+    }
+  };
+
+
+  /* ---------------- ACTIONS ---------------- */
+
   const addMeal = async () => {
     if (!mealName || !mealCalories) return;
 
-    await fetch("http://localhost:5000/api/meals", {
+    await fetch(`${API}/api/meals`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
       body: JSON.stringify({
-        user_id: USER_ID,
-        meal_name: mealName,
+        name: mealName,
         calories: Number(mealCalories),
       }),
     });
 
     setMealName("");
     setMealCalories("");
-
-    // Refresh everything affected by calories
     fetchSummary();
-    fetchWorkoutRecommendations();
+    fetchMeals();
   };
 
-  // ================= ADD WEIGHT =================
   const addWeight = async () => {
     if (!weight) return;
 
-    await fetch("http://localhost:5000/api/weight", {
+    await fetch(`${API}/api/weight`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: USER_ID,
-        weight_kg: Number(weight),
-      }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify({ weight_kg: Number(weight) }),
     });
 
     setWeight("");
     fetchWeightHistory();
   };
 
-  // ================= FETCH WEIGHT HISTORY =================
-  const fetchWeightHistory = async () => {
-    const res = await fetch(
-      `http://localhost:5000/api/weight/${USER_ID}`
-    );
-    const data = await res.json();
-    setWeightHistory(data);
-  };
+  /* ---------------- EFFECT ---------------- */
 
-  // ================= FETCH ML WORKOUTS =================
-  const fetchWorkoutRecommendations = async () => {
-    const res = await fetch(
-      `http://localhost:5000/api/workouts/recommend/${USER_ID}`
-    );
-    const data = await res.json();
-    setWorkouts(data);
-  };
-
-  // ================= INITIAL LOAD =================
   useEffect(() => {
     fetchSummary();
+    fetchMeals();
     fetchWeightHistory();
-    fetchWorkoutRecommendations();
+    fetchWorkouts();
   }, []);
 
-  // ================= CHART DATA =================
+  if (!summary) return null;
 
-  const calorieChartData = {
-    labels: ["Consumed", "Remaining"],
-    datasets: [
-      {
-        data: [summary.consumed, summary.remaining],
-        backgroundColor: ["#f97316", "#22c55e"],
-      },
-    ],
-  };
+  /* ---------------- DATA FORMATTING ---------------- */
 
-  const weightChartData = {
-    labels: weightHistory.map((w) =>
-      new Date(w.entry_date).toLocaleDateString()
-    ),
-    datasets: [
-      {
-        label: "Weight (kg)",
-        data: weightHistory.map((w) => w.weight_kg),
-        borderColor: "#4ade80",
-        tension: 0.3,
-      },
-    ],
-  };
+  const calorieData = [
+    { name: "Consumed", value: Number(summary.consumed) },
+    { name: "Remaining", value: Number(summary.remaining) },
+  ];
 
-  // ================= UI =================
+  const formattedWeight = weightHistory.map((w) => ({
+    ...w,
+    date: new Date(w.created_at).toLocaleDateString(),
+    time: new Date(w.created_at).toLocaleTimeString(),
+  }));
+
+  /* ---------------- UI ---------------- */
+
   return (
-    <div style={{ padding: "40px", maxWidth: "900px" }}>
-      <h1>📊 CalTrack — Analytics Dashboard</h1>
+    <div className="container">
+      <h1>🏋️ CalTrack — Fitness Dashboard</h1>
 
-      {/* ================= CALORIES ================= */}
-      <h2>🔥 Calories</h2>
-      <p>Daily Goal: {summary.calorie_goal}</p>
-      <p>Consumed: {summary.consumed}</p>
-      <p>Remaining: {summary.remaining}</p>
+      {/* ---------------- CALORIES ---------------- */}
+      <section>
+        <h2>🔥 Calories</h2>
 
-      <div style={{ maxWidth: "300px" }}>
-        <Doughnut data={calorieChartData} />
-      </div>
-
-      <h3>🍽️ Add Meal</h3>
-      <input
-        placeholder="Meal name"
-        value={mealName}
-        onChange={(e) => setMealName(e.target.value)}
-      />
-      <input
-        type="number"
-        placeholder="Calories"
-        value={mealCalories}
-        onChange={(e) => setMealCalories(e.target.value)}
-        style={{ marginLeft: "10px" }}
-      />
-      <button onClick={addMeal} style={{ marginLeft: "10px" }}>
-        Add Meal
-      </button>
-
-      <hr />
-
-      {/* ================= WEIGHT TRACKING ================= */}
-      <h2>⚖️ Weight Tracking</h2>
-
-      <input
-        type="number"
-        placeholder="Enter weight (kg)"
-        value={weight}
-        onChange={(e) => setWeight(e.target.value)}
-      />
-      <button onClick={addWeight} style={{ marginLeft: "10px" }}>
-        Add Weight
-      </button>
-
-      <h3>📉 Weight History</h3>
-
-      {weightHistory.length === 0 ? (
-        <p>No weight entries yet</p>
-      ) : (
-        <>
-          <ul>
-            {weightHistory.map((w, i) => (
-              <li key={i}>
-                {new Date(w.entry_date).toLocaleDateString()} —{" "}
-                {w.weight_kg} kg
-              </li>
+        <PieChart width={300} height={300}>
+          <Pie
+            data={calorieData}
+            dataKey="value"
+            innerRadius={70}
+            outerRadius={120}
+            paddingAngle={4}
+            stroke="#1e1e1e"
+            strokeWidth={2}
+          >
+            {calorieData.map((_, i) => (
+              <Cell key={i} fill={CAL_COLORS[i]} />
             ))}
-          </ul>
+          </Pie>
+          <Tooltip />
+        </PieChart>
 
-          <div style={{ maxWidth: "600px" }}>
-            <Line data={weightChartData} />
-          </div>
-        </>
-      )}
+        <p style={{ color: CAL_COLORS[0] }}>
+          Consumed: {summary.consumed} kcal
+        </p>
+        <p style={{ color: CAL_COLORS[1] }}>
+          Remaining: {summary.remaining} kcal
+        </p>
 
-      <hr />
+        {/* ADD MEAL */}
+        <div className="row">
+          <input
+            placeholder="Meal name"
+            value={mealName}
+            onChange={(e) => setMealName(e.target.value)}
+          />
+          <input
+            placeholder="Calories"
+            type="number"
+            value={mealCalories}
+            onChange={(e) => setMealCalories(e.target.value)}
+          />
+          <button onClick={addMeal}>Add Meal</button>
+        </div>
 
-      {/* ================= ML WORKOUTS ================= */}
-      <h2>🏋️ Recommended Workouts (ML)</h2>
-
-      {workouts.length === 0 ? (
-        <p>No workout recommendations yet</p>
-      ) : (
+        {/* MEAL LOG */}
         <ul>
-          {workouts.map((w) => (
-            <li key={w.id}>
-              <strong>{w.name}</strong> — {w.calories_burn} kcal (
-              {w.type})
+          {meals.map((m) => (
+            <li key={m.id}>
+              🍽️ {m.name} — {m.calories} kcal (
+              {new Date(m.created_at).toLocaleTimeString()})
             </li>
           ))}
         </ul>
-      )}
+      </section>
+
+      <hr />
+
+      {/* ---------------- WEIGHT ---------------- */}
+      <section>
+        <h2>⚖️ Weight Progress</h2>
+
+        <LineChart width={500} height={300} data={formattedWeight}>
+          <XAxis dataKey="date" />
+          <YAxis />
+          <Tooltip />
+          <CartesianGrid stroke="#333" />
+          <Line
+            type="monotone"
+            dataKey="weight_kg"
+            stroke="#00cec9"
+            strokeWidth={3}
+          />
+        </LineChart>
+
+        <div className="row">
+          <input
+            placeholder="Weight (kg)"
+            type="number"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+          />
+          <button onClick={addWeight}>Add Weight</button>
+        </div>
+
+        <ul>
+          {formattedWeight.map((w) => (
+            <li key={w.id}>
+              {w.weight_kg} kg — {w.date} {w.time}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <hr />
+
+      {/* ---------------- WORKOUTS ---------------- */}
+      <section>
+        <h2>🏃 Recommended Workouts</h2>
+
+        {workouts.length === 0 ? (
+          <p style={{ color: "#888" }}>No recommendations yet</p>
+        ) : (
+          <ul>
+            {workouts.map((w) => (
+              <li key={w.id}>
+                {w.name} — 🔥 {w.calories_burn} kcal
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
-
-export default App;
